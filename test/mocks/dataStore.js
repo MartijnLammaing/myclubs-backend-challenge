@@ -89,7 +89,7 @@ class DataStore {
     if (!data.objectId) {
       console.log("Can’t update an object without an objectId", type, data);
       Promise.reject(
-        new Error(`can't update an object without objectId ${type}`)
+        new Error("Can't update an object without objectId ${type}")
       );
     }
 
@@ -225,7 +225,7 @@ class DataStore {
         }
 
         if (operator === "$lt") {
-          return diff <= 0;
+          return diff < 0;
         }
       }
 

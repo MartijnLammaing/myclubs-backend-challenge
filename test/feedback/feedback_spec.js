@@ -6,6 +6,9 @@ const {
   getTerms,
   getRequired,
   create,
+  getAverageUserRating,
+  sanitizeTerms,
+  getBooking,
   ERRORS
 } = require("../../src/feedback/feedback");
 
@@ -87,6 +90,24 @@ describe("feedback", () => {
         member: USER_PTR,
         objectId: "bookingID5",
         start: Formats.parseDate(moment().add(2, "days"))
+      },
+      bookingID6: {
+        partner: PARTNER_PTR,
+        activity: COURSE_PTR,
+        status: "active",
+        member: USER_PTR,
+        objectId: "bookingID6",
+        start: Formats.parseDate(moment().subtract(4, "days")),
+        feedback: { objectId: "feedbackID2" }
+      },
+      bookingID7: {
+        partner: PARTNER_PTR,
+        activity: COURSE_PTR,
+        status: "active",
+        member: USER_PTR,
+        objectId: "bookingID7",
+        start: Formats.parseDate(moment().subtract(4, "days")),
+        feedback: { objectId: "feedbackID3" }
       }
     },
     UserFeedback: {
@@ -98,6 +119,30 @@ describe("feedback", () => {
           className: "Booking"
         },
         user: USER_PTR
+      },
+      feedbackID2: {
+        objectId: "feedbackID2",
+        booking: {
+          objectId: "bookingID6",
+          __type: "Pointer",
+          className: "Booking"
+        },
+        user: USER_PTR,
+        comment: "test comment",
+        value: 3,
+        terms: { term1: 5 }
+      },
+      feedbackID3: {
+        objectId: "feedbackID3",
+        booking: {
+          objectId: "bookingID7",
+          __type: "Pointer",
+          className: "Booking"
+        },
+        user: USER_PTR,
+        comment: "test comment 2",
+        value: 4,
+        terms: { term1: 2, term3: 3 }
       }
     },
     UserFeedbackTerm: {
@@ -121,13 +166,13 @@ describe("feedback", () => {
       },
       feedbackTermID4: {
         objectId: "feedbackTermID4",
-        slug: "term3",
+        slug: "term4",
         status: "active",
         type: "infrastructure"
       },
       feedbackTermID5: {
         objectId: "feedbackTermID5",
-        slug: "term3",
+        slug: "term5",
         status: "active",
         type: "infrastructure"
       }
@@ -194,6 +239,45 @@ describe("feedback", () => {
       bookings.length.should.equal(0);
     });
   });
+  describe("getAverageUserRating", async () => {
+    it("should return average rating for user", async () => {
+      const data = _.cloneDeep(DATA);
+      const expectedAverageTerms = { term1: 3.5, term3: 3 };
+
+      const dataStore = new DataStore({ data: data });
+      const avgRating = await getAverageUserRating(dataStore, {
+        userId: "userID"
+      });
+
+      avgRating.value.should.equal(3.5);
+      avgRating.terms.should.deepEqual(expectedAverageTerms);
+    });
+
+    it("should fail if there is no feedback to make an average of", async () => {
+      const dataStore = new DataStore({ data: DATA });
+      const payload = {
+        userId: "NoBookingUserID"
+      };
+
+      try {
+        const feedback = await getAverageUserRating(dataStore, payload);
+        should.not.exist(feedback);
+      } catch (e) {
+        e.code.should.equal(ERRORS.NO_FEEDBACK_AVAILABLE.code);
+      }
+    });
+  });
+  describe("getBooking", async () => {
+    it("should return one booking for bookingID with activity included", async () => {
+      const data = _.cloneDeep(DATA);
+      const dataStore = new DataStore({ data: data });
+
+      const booking = await getBooking(dataStore, "bookingID1");
+
+      booking.objectId.should.equal("bookingID1");
+      booking.activity.should.deepEqual(DATA.Activity.courseID);
+    });
+  });
   describe("submit", () => {
     it("should create a feedback and connect it to a booking", async () => {
       const data = _.cloneDeep(DATA);
@@ -210,15 +294,41 @@ describe("feedback", () => {
       data.Booking.bookingID1.feedback.objectId.should.equal(feedback.objectId);
     });
   });
-  describe('sanitizeTerms', ()=>{
+  describe("sanitizeTerms", () => {
     // TODO: unit test this method
-    it('should filter invalid terms', async()=>{
-      // TODO: implement me
-    })
-    it('should only allow values between 0 - 5', async()=>{
-      // TODO: implement me
-    })
-  })
+    it("should filter invalid terms", async () => {
+      const data = _.cloneDeep(DATA);
+      const dataStore = new DataStore({ data });
+
+      const payload = {
+        terms: { term1: 4, term2: 3, term3: 2, term4: 1 },
+        user: { __type: "Pointer", className: "_User", objectId: "userID" },
+        bookingId: "bookingID1"
+      };
+
+      const validTerms = await sanitizeTerms(dataStore, payload);
+
+      validTerms.should.have.property("term1");
+      validTerms.should.have.property("term3");
+      Object.keys(validTerms).length.should.equal(2);
+    });
+    it("should only allow values between 0 - 5", async () => {
+      const data = _.cloneDeep(DATA);
+      const dataStore = new DataStore({ data });
+
+      const payload = {
+        terms: { term1: 8, term3: -2 },
+        user: { __type: "Pointer", className: "_User", objectId: "userID" },
+        bookingId: "bookingID1"
+      };
+
+      const validTerms = await sanitizeTerms(dataStore, payload);
+
+      validTerms.term1.should.equal(5);
+      validTerms.term3.should.equal(0);
+      Object.keys(validTerms).length.should.equal(2);
+    });
+  });
   describe("create", () => {
     it("should allow a rating of 0", async () => {
       const data = _.cloneDeep(DATA);
@@ -291,7 +401,6 @@ describe("feedback", () => {
         e.code.should.equal(ERRORS.VALUE_REQUIRED.code);
       }
     });
-
 
     it("should fail if the user has already created a feedback for this specific booking", async () => {
       const data = _.cloneDeep(DATA);

@@ -15,7 +15,8 @@ const ERRORS = {
     message: "feedback has already been provided"
   },
   VALUE_REQUIRED: { code: 25004, message: "value is required" },
-  BOOKING_NOT_FOUND: { code: 25005, message: "booking  not found" }
+  BOOKING_NOT_FOUND: { code: 25005, message: "booking  not found" },
+  NO_FEEDBACK_AVAILABLE: { code: 25006, message: "no feedback has been found" }
 };
 
 class FeedbackService {
@@ -31,6 +32,9 @@ class FeedbackService {
   };
   getRequired = async options => {
     return getRequired(this.dataStore, options);
+  };
+  getAverageUserRating = async options => {
+    return getAverageUserRating(this.dataStore, options);
   };
 }
 
@@ -133,6 +137,9 @@ const create = async (
   dataStore,
   { user, bookingId, terms, source, comment, value }
 ) => {
+  if (!user) {
+    throw new ApiError(ERRORS.USER_REQUIRED);
+  }
   if (!bookingId) {
     throw new ApiError(ERRORS.BOOKING_REQUIRED);
   }
@@ -185,11 +192,12 @@ const create = async (
     TODO: refactor to use datastore.getOne with the activity include
 */
 const getBooking = async (dataStore, bookingId) => {
-  const { results } = await dataStore.query(
-    { type: "Booking", include: "activity" },
-    { objectId: bookingId }
-  );
-  return results[0];
+  const booking = await dataStore.getOne("Booking", {
+    objectId: bookingId,
+    include: "activity"
+  });
+
+  return booking;
 };
 
 /*
@@ -214,8 +222,69 @@ const save = async (dataStore, feedback) => {
   return feedback;
 };
 
-const getAvargeUserRating = (dataStore, userId) => {
-  // TODO: implement me
+const getAllUserFeedback = async (dataStore, user) => {
+  const userPtr = {
+    __type: "Pointer",
+    className: "_User",
+    objectId: user.userId
+  };
+
+  const { results } = await dataStore.query(
+    { type: CLASS_NAME },
+    { user: userPtr }
+  );
+
+  return results;
+};
+/*
+    get average user rating for all bookings and terms
+*/
+const getAverageUserRating = async (dataStore, userId) => {
+  const userFeedback = await getAllUserFeedback(dataStore, userId);
+
+  if (userFeedback.length === 0) {
+    throw new ApiError(ERRORS.NO_FEEDBACK_AVAILABLE);
+  }
+
+  let avgfeedback = { terms: {} };
+  let calculatedAverageFeedback = { terms: {} };
+
+  const calculateAverage = acc => {
+    return acc.total / acc.count;
+  };
+
+  const addToTotal = (value, acc) => {
+    if (!acc) {
+      return { total: value, count: 1 };
+    }
+
+    return { total: acc.total + value, count: acc.count + 1 };
+  };
+
+  for (let feedbackId in userFeedback) {
+    const feedback = userFeedback[feedbackId];
+
+    if (feedback.value) {
+      avgfeedback.value = addToTotal(feedback.value, avgfeedback.value);
+    }
+
+    for (let term in feedback.terms) {
+      avgfeedback.terms[term] = addToTotal(
+        feedback.terms[term],
+        avgfeedback.terms[term]
+      );
+    }
+  }
+
+  calculatedAverageFeedback.value = calculateAverage(avgfeedback.value);
+
+  for (let term in avgfeedback.terms) {
+    calculatedAverageFeedback.terms[term] = calculateAverage(
+      avgfeedback.terms[term]
+    );
+  }
+
+  return calculatedAverageFeedback;
 };
 
 module.exports = {
@@ -225,7 +294,8 @@ module.exports = {
   capValue,
   submit,
   getRequired,
+  getBooking,
   create,
-  capValue,
+  getAverageUserRating,
   ERRORS
 };
